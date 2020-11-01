@@ -1,2 +1,4 @@
-# Cleaned_up_scripts
-Scripts, but actually readable
+# scripts
+A place where I store various backend scripts for making programs work on spartan, R scripts for visualising data
+
+SQLite was written in a Jupyter notebook using SQLAchemy, some features are curtailed in this version but was intuitive given my python experience

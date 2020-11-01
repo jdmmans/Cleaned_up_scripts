@@ -1,0 +1,73 @@
+# dependencies
+library(ggtree)
+library(phytools)
+library(ape)
+library(dplyr)
+library(ggnewscale)
+
+## My data + attempt
+coretree<- "/Users/jmmans/Desktop/Results/trees/clean.core.aln.treefile"
+coretree <- read.tree(coretree)
+
+#ordering
+cord1<- coretree[["tip.label"]]
+
+#tree itself
+tree <- ggtree(coretree)
+tree <- as.phylo(tree)
+tree <- midpoint.root(tree)
+genotype <- read.csv("/Users/jmmans/Desktop/emm75_meta/emm75in/emm75_meta_analysistime.csv", header = TRUE)
+
+#black magic to make the data fit the no. of tips
+genotype <- data.frame(genotype)
+len<- length(tree$tip.label)
+genotype <- head(genotype, len)
+genotype <- data.frame(genotype)
+genotype <- arrange(genotype, factor(Isolate, levels = cord1))
+rownames(genotype) <- coretree$tip.label
+
+# different factors
+# excessively long MLST sorting
+symp <- subset(genotype, select= c(Disease))
+MLST <- subset(genotype, select= c(MLST))
+popPUNK <- subset(genotype, select= c(popPUNK_cluster))
+
+#renaming of misclassified variable
+MLST[MLST == "150 - called 924"]  <- "150"
+popPUNK[popPUNK == "278"]  <- "278r"
+popPUNK[popPUNK == "278r"]  <- "278"
+
+
+## MLST manually recolouring code ##
+MLSTset = c('230'='#969696','357'='#858585','468'='#747474','578'='#646464','590'='#535353','607'='#424242','609'='#323232','704'='#212121','1078'='#101010','-novel'='#010101','49'='#67000D','632'='#760610','851'='#850D10','861'='#941317','1051'='#A31A1A','-novel 49'='#B2201E','150'='#807DBA','150 - called 924'='#4F1F8C','751'='#5F3E9B','788'='#6F5DAA','880'='#3F007D')
+
+## country manual recolouring ##
+countryset =c('Australia'='#810f7c','Brazil'='#f768a1','Canada'='#dd3497','Fiji'='#54278f','France'='#000000','India'='#67a9cf','Kenya'='#a6bddb','Switzerland'='#252525','United Kingdom'='#525252','United States'='#ae017e')
+
+## symptom manual recolouring ##
+sympset =c('Bacterial Sepsis'='#EF3B2C','iGAS'='#67000D','None'='#08306B','Pneumonia'='#4292C6','Pueperal Sepsis'='#C12721','Scarlet fever'='#367EB3','Impetigo'='#2A6AA1','Necrotising fasciitis'='#941317','Rheumatic fever'='#1F578F','skin sore'='#13437D','Unknown clinical'='#ffffff','Pharyngitis'='#1B5089')
+Country <- subset(genotype, select= c(Country))
+
+## popPUNK ### 
+popcolour =c('33'='#EF3B2C','73'='#67000D','83'='#08306B','118'='#4292C6','188'='#C12721','222'='#367EB3','230'='#2A6AA1','278'='#941317','300'='#1F578F')
+
+
+#plots
+circ <- ggtree(tree, layout = "circular")
+p1 <- gheatmap(circ, symp) + scale_fill_manual(values=sympset)
+p2 <- gheatmap(circ, Country, hjust = -5) + scale_fill_manual(values=countryset)
+p3 <- gheatmap(circ, MLST, hjust = -5) + scale_fill_manual(values=MLSTset)
+p4 <- gheatmap(circ, popPUNK, hjust = -5) + scale_fill_manual(values=popcolour)
+
+p4
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/corePUNKgenes.png" #don't override stuff, need to print off 
+ggsave(File, width = 7, height = 7)
+p3
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/coreMLSTgenes.png" #don't override stuff, need to print off 
+ggsave(File, width = 7, height = 7)
+p2
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/coreGenome_area.png" #don't override stuff, need to print off 
+ggsave(File, width = 7, height = 7)
+p1
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/coresymptoms.png" #don't override stuff, need to print off 
+ggsave(File, width = 7, height = 7)

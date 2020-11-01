@@ -1,0 +1,23 @@
+### Python 2 ###
+module load Miniconda2/4.3.21
+
+### Python 3 ###
+module load Miniconda3/4.6.14
+### inital run only ###
+config --add channels defaults
+config --add channels bioconda
+config --add channels conda-forge
+conda create <package_name> -n <enivronment_name>
+
+### always ###
+
+# chaning to that environment
+source activate <environment_name>
+
+#commands
+###
+
+#exiting 
+source deactivate <environment_name>
+
+done

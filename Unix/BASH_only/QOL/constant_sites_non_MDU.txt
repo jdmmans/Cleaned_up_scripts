@@ -1,0 +1,9 @@
+FASTA="/data/cephfs/punim0599/Jesse/emm75/snpanalysis/clean.core.aln"
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "A" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "a" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "C" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "c" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "G" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "g" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "T" | wc -c
+NUM=$(grep -v '>' "$FASTA" | tr -d -c "t" | wc -c

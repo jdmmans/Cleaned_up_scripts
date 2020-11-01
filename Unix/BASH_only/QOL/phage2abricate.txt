@@ -1,0 +1,11 @@
+### ' accepted genomes ' ###
+awk 'length <= 45000' <phage.fa >file.out
+awk 'BEGIN{FS=""}
+        {if(c==$1){l=$0;next;} if(c) print l;c=$1;l=$0;} 
+        END{print }' file.out > sequences  
+
+### ' rejected genomes ' ### second part of awk preserves the names of the phage regions
+awk 'length >= 45000 || length < 30' <phage.fa >file.out
+awk 'BEGIN{FS=""}
+        {if(c==$1){l=$0;next;} if(c) print l;c=$1;l=$0;} 
+        END{print }' file.out > rejects.txt 

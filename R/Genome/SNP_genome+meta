@@ -1,0 +1,90 @@
+```{r SNP rewrite}
+# dependencies
+library(treeio)
+library(ggtree)
+library(tidytree)
+library(phylogram)
+library(phylogram)
+library(ape)
+library(dendextend)
+library(dplyr)
+library(ggtree)
+
+## My data + attempt
+coretree<- "/Users/jmmans/Desktop/trees/gubbinscore.nwk"
+coretree <- read.tree(coretree)
+
+#ordering
+cord1<- coretree[["tip.label"]]
+
+#tree itself
+tree <- ggtree(coretree)
+tree <- as.phylo(tree)
+genotype <- read.csv("/Users/jmmans/Desktop/emm75_meta/R_meta.csv", header = TRUE)
+
+#black magic to make the data fit the no. of tips
+genotype <- data.frame(genotype)
+len<- length(tree$tip.label)
+genotype <- head(genotype, len)
+genotype <- data.frame(genotype)
+genotype <- arrange(genotype, factor(Isolate, levels = cord1))
+rownames(genotype) <- tree$tip.label
+
+# different factors
+# excessively long MLST sorting
+# there must be a package for this
+MLST <- subset(genotype, select= c(MLST))
+levels(MLST$MLST) <- c(levels(MLST$MLST), "0", "1", "2", "3", "4", "5", "6", "7", "less than 4", "equal to or more than 4") 
+MLST[MLST == "192"] <-1
+MLST[MLST == "49"] <- 7
+MLST[MLST == "150"]  <-5
+MLST[MLST == "150 - called 924"]  <-5
+MLST[MLST == "230"] <-1
+MLST[MLST == "357"] <-2
+MLST[MLST == "468"] <-2
+MLST[MLST == "578"] <-1
+MLST[MLST == "590"] <-1
+MLST[MLST == "607"] <-2
+MLST[MLST == "609"] <-2
+MLST[MLST == "632"] <-5
+MLST[MLST == "704"] <-1
+MLST[MLST == "751"] <-1
+MLST[MLST == "788"] <-4
+MLST[MLST == "851"] <-6
+MLST[MLST == "861"] <-6
+MLST[MLST == "880"] <-4
+MLST[MLST == "888"] <-0
+MLST[MLST == "1051"] <-6
+MLST[MLST == "1078"] <-2
+MLST[MLST == "49"] <- 7
+MLST[MLST == "-1"] <- 0
+MLST[MLST == "-2"] <- 6
+MLST[MLST =="7"] <- "equal to or more than 4"
+MLST[MLST =="6"] <- "equal to or more than 4"
+MLST[MLST =="5"] <- "equal to or more than 4"
+MLST[MLST =="4"] <- "equal to or more than 4"
+MLST[MLST =="3"] <- "less than 4"
+MLST[MLST =="2"] <- "less than 4"
+MLST[MLST =="1"] <- "less than 4"
+MLST[MLST =="0"] <- "less than 4"
+Area <- subset(genotype, select= c(Continent))
+Country <- subset(genotype, select= c(Country...State))
+
+#plots
+circ <- ggtree(tree, layout ="circular")
+p1 <- gheatmap(circ, MLST, hjust = -5) +
+                  scale_fill_viridis_d(option="D")
+p2 <- gheatmap(circ, Area, hjust = -3) +
+                  scale_fill_viridis_d(option="D")
+p3 <- gheatmap(circ, Country, hjust = -3) +
+                  scale_fill_viridis_d(option="D")
+
+p3
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Genome_country.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File))
+p2
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Genome_area.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File))
+p1
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/MLSTgenes.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File))

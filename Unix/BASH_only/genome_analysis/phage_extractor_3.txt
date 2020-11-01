@@ -1,0 +1,72 @@
+# read in editted compiled phage locations from phastaf, where the different parts are marked with fasta-, -fasta, ect
+cat /data/cephfs/punim0599/Jesse/emm75/edit_phage.txt | while read line; do
+
+# ignore the ERS for now as it is 'special'
+if [[ "$line" != *"ERS"* ]]; then
+
+# annoying grep to get all variables from a single line
+fas=$(echo "$line" | grep -o -P '(?<=fasta-).*(?=-fasta)')
+contig=$(echo "$line" | grep -o -P '(?<=contig-).*(?=-contig)')
+start=$(echo "$line" | grep -o -P '(?<=first-).*(?=-first)')
+end=$(echo "$line" | grep -o -P '(?<=last-).*(?=-last)')
+
+#change start / end to reflect starting from 1 not 0 as in phastaf
+start=$((${start} + 1))
+end=$((${end} + 1))
+
+#variable setting 
+dest="/data/cephfs/punim0599/Jesse/emm75/phagecontent/phage_fa/${fas}.fa"
+tempor="/data/cephfs/punim0599/Jesse/emm75/phagecontent/temp.txt"
+
+# find the contig line using grep, add 1 to this variable to get the line below it
+cut_off="$(grep -n ${contig} /data/cephfs/punim0599/Jesse/emm75/contigs/${fas}.fa  | cut -d : -f 1)"
+cut_off=$((${cut_off} + 1))
+
+# add contig so that prokka can read it
+[ -f "${dest}" ] || echo "${dest}"
+
+# if new file tell user it is being made
+[ -f "${dest}" ] || echo ">${contig}" >> ${dest}
+
+# cut off all lines above the contig wanted, cut n characters out based on phanotate and print to dest
+tail -n +${cut_off} "/data/cephfs/punim0599/Jesse/emm75/contigs/${fas}.fa" > ${tempor}
+tr -d '\n' < ${tempor} | cut -b${start}-${end} >> ${dest}
+
+# cleanup
+rm ${tempor}
+
+# ERS / fna stuff
+
+elif [[ "$line" == *"ERS"* ]]; then
+# annoying grep to get all variables from a single line
+fas=$(echo "$line" | grep -o -P '(?<=fasta-).*(?=-fasta)')
+contig=$(echo "$line" | grep -o -P '(?<=contig-).*(?=-contig)')
+start=$(echo "$line" | grep -o -P '(?<=first-).*(?=-first)')
+end=$(echo "$line" | grep -o -P '(?<=last-).*(?=-last)')
+
+#change start / end to reflect starting from 1 not 0 as in phastaf
+start=$((${start} + 1))
+end=$((${end} + 1))
+
+#variable setting 
+dest="/data/cephfs/punim0599/Jesse/emm75/phagecontent/phage_fa/${fas}fna"
+tempor="/data/cephfs/punim0599/Jesse/emm75/phagecontent/temp.txt"
+
+# find the contig line using grep, add 1 to this variable to get the line below it
+cut_off="$(grep -n ${contig} /data/cephfs/punim0599/Jesse/emm75/contigs/${fas}fna  | cut -d : -f 1)"
+cut_off=$((${cut_off} + 1))
+
+# add contig so that prokka can read it
+[ -f "${dest}" ] || echo ">${contig}" >> ${dest}
+
+# cut off all lines above the contig wanted, cut n characters out based on phanotate and print to dest
+tail -n +${cut_off} "/data/cephfs/punim0599/Jesse/emm75/contigs/${fas}fna" > ${tempor}
+tr -d '\n' < ${tempor} | cut -b${start}-${end} >> ${dest}
+
+# visualise work to viewer
+echo "${dest}"
+# cleanup
+rm ${tempor}
+
+fi
+done

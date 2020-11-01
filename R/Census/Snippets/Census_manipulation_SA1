@@ -1,0 +1,16 @@
+library(data.table)
+
+## read in CSV
+SA1_i = subset(read.csv("gold_poll.csv"), select = c(SA1_id))
+Wealth = read.csv("/Users/Julius/Downloads/Census_useful/2016Census_income.csv")
+demos = read.csv("/Users/Julius/Downloads/Census_useful/2016Census_pop_demos.csv")
+birthplace = read.csv("/Users/Julius/Downloads/Census_useful/2016Census_birthplace.csv")
+
+## filter Census data by SA1 id
+d1 = data.table(SA1_i, key = 'SA1_id')
+d2 = data.table(Wealth, key = 'SA1_7DIGITCODE_2016')
+d3 = data.table(birthplace, key = 'SA1_7DIGITCODE_2016')
+d4 = data.table(demos, key = 'SA1_7DIGITCODE_2016')
+area_wealth = d2[d1, nomatch=0]
+area_birth = d3[d1, nomatch=0]
+area_demos = d4[d1, nomatch=0]

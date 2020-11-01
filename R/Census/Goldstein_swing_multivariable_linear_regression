@@ -1,0 +1,87 @@
+---
+title: "Goldstein polling linear regression swing analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Creating a results table for each SA1 division in Goldstein
+
+```{r creating a CSV with straight up polling results}
+library(data.table)
+if (!file.exists("gold_swing.csv")) ## skip if data already exists to improve run time
+  { 
+    Polls = read.csv("/Users/Julius/Downloads/Goldstein_polling_data.csv") ## read in polling data
+    Bit1 = with(Polls, Swing*votes.from.SA1/100) ## create swing as function of votes at booth per SA1
+    Bit2 = subset(Polls, select = c(SA1_id, votes.from.SA1)) ## isolate SA1 id and vote from SA1
+    Bits_wanted = cbind(Bit2,Bit1) ## combine prior data tables
+    Bits_wanted.dt = data.table(Bits_wanted, key='SA1_id') ## sort by SA1 id
+    Prep = Bits_wanted.dt[,list(ALP_votes=sum(Bit1), Votes=sum(votes.from.SA1)), by='SA1_id'] ## create list with sum of swing % per SA1 and votes from SA1
+    ALP_swing = with(Prep, ALP_votes) ## isolate ALP swing variable
+    Finn = subset(Prep, select = c(SA1_id)) ## grab SA1id for ALP swing
+    Final = cbind(Finn,ALP_swing) ## create list of SA1 and ALP swing
+   ## create CSV
+    write.csv(Final, file = "gold_swing.csv")}
+```
+
+## Preparing the factors for analysis
+DON'T LOAD AS TABLE OR R LAGS OUT, use data tab
+
+```{r analysis}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+
+## read in CSVs
+gold_poll = read.csv("gold_swing.csv") ## load in votes
+demos = read.csv("/Users/Julius/Downloads/Census_useful/2016Census_pop_demos.csv")
+birthplace = read.csv("/Users/Julius/Downloads/Census_useful/2016Census_birthplace.csv")
+relig = read.csv("/Users/Julius/Downloads/census_religion.csv")
+
+## filter Census data by SA1 id
+d1 = subset(data.table(gold_poll, key = 'SA1_id'), select = -X) ## stupid non needed x variable saying which line it was on
+d2 = data.table(birthplace, key = 'SA1_7DIGITCODE_2016')
+d3 = data.table(demos, key = 'SA1_7DIGITCODE_2016')
+d4 = data.table(relig, key = 'SA1_7DIGITCODE_2016')
+
+## Census data covers all Vic SA1's, this step limits it solely to Goldstein SA1s by restricting to only those with a swing, and then removes the swing column
+area_birth = subset(d2[d1, nomatch=0], select = -SA1_7DIGITCODE_2016)
+area_birth = select(area_birth, -ALP_swing)
+area_demos = subset(d3[d1, nomatch=0], select = -SA1_7DIGITCODE_2016)
+area_demos = select(area_demos, -ALP_swing)
+area_religion = subset(d4[d1, nomatch=0], select = -SA1_7DIGITCODE_2016)
+area_religion = select(area_religion, -ALP_swing)
+
+## combine data frames with polling info, strip key from polling data
+census = data.frame(subset(cbind(d1, area_birth, area_demos, area_religion), select = -SA1_id))
+
+## remove all male, female, and total groups
+census1 = census %>% dplyr::select(contains("_BP"))
+census2 = census %>% dplyr::select(contains("_P"))
+census = cbind(census1,census2)
+census = census %>% dplyr::select(!contains("Tot_P"))
+census = census %>% dplyr::select(!contains("_M"))
+census = census %>% dplyr::select(!contains("_F"))
+
+## filter out groups less than 1% of total electorate
+census = census %>% subset(., select = which(colSums(census)>1000))
+
+## make individual variables again to prevent overlap
+tempcensus = cbind(area_birth, census)
+area_birth = tempcensus %>% subset(., select = which(duplicated(names(.))))
+tempcensus = cbind(area_demos, census)
+area_demos = tempcensus %>% subset(., select = which(duplicated(names(.))))
+tempcensus = cbind(area_religion, census)
+area_religion = tempcensus %>% subset(., select = which(duplicated(names(.))))
+
+## linear regression of the variable ALP swing, as explained by 'data', no default intercept as denoted by -1
+votes = lm(d1$ALP_swing ~. -1, data = area_religion)
+
+## If want to analyse only part of table
+##votes = lm(d1$ALP_swing ~ area_religion$SB_OSB_NRA_NR_P -1) 
+
+end = summary.lm(votes)
+end
+```

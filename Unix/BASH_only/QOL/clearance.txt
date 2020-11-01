@@ -1,0 +1,8 @@
+# delete all files in current directory without a file extension
+find ./* -type f  ! -name "*.*"  -delete
+
+# delete extra copies of the same strain
+rm /data/cephfs/unim0599/Jesse/*/*.fastq.gz.*
+
+# move all files out of sub folders to the current one
+mv ./*/* ./

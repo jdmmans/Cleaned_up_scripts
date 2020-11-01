@@ -1,0 +1,39 @@
+---
+title: "World_map"
+output: html_document
+---
+
+```{r, message = FALSE, warnings = FALSE, echo = FALSE}
+#### world visualised, largely plug and play, cheers Josh ####
+library(sf) 
+library(tmap)
+library(tidyverse)
+emm75 <- read.csv("/Users/jmmans/Desktop/emm75_meta/emm75in/emm75_meta_analysistime.csv", header = TRUE, row.names = 1)
+data(World) #Provides dataset for map geometries```
+```
+
+```{r map stuff, fig.height = 7, fig.width = 15}
+###### Subset country frequencies in metadata, then make barplot & global map
+
+#Subset country frequencies in Metadata 
+Worldfr <- emm75 %>% group_by(Country) %>% count() %>% rename(Frequency = n)
+
+#Change window frame of barplot, make barplot & translate axis names
+par(mar=c(14,4,4,4))
+barplot(Worldfr$Frequency, names.arg = Worldfr$`Country`, las=2, offset = 0, col="#69b3a2", font.lab=2, 
+        xlab = "", ylab = "Frequency in currated dataset", ylim = c(0,250))
+mtext(text="Country of S. aureus ST5 isolation",  line=-45)
+
+#Match & align map dataset with metadataset with Country names
+Countrynames <- match(World$name, Worldfr$`Country`)
+Countrynames <- Worldfr[Countrynames, ]
+Worldmap <- st_sf(data.frame(World, Countrynames)) 
+
+#Visualise Worldmap
+pics <- tm_shape(Worldmap) + tm_borders() + tm_layout(bg.color = "lightblue") + 
+  tm_fill(col = "Frequency", palette = "seq", showNA = FALSE) 
+
+svg(filename="/Users/jmmans/Desktop/emm75_meta/emm75out/source_dist.svg")
+pics
+dev.off
+```

@@ -1,0 +1,41 @@
+### Tableau doesn't actually allow creating scripts like this easily but it is a pain to look for individual variables
+### as such this is a collection of variables used for creating my Goldstein TPP and Swing maps
+
+## Vote totals
+
+# Absentee / Postal votes
+SUM(IIF([PollingPlaceID]=0,[votes from SA1],0))
+
+# In person votes
+SUM(IIF([PollingPlaceID]!=0,[votes from SA1],0))
+
+
+## ALP TPP Calculation variables
+
+# Approx TPP calculation for votes from an SA1 based on average of booths used and amount that visited
+# Intermediate step non postal / absentee * Labor TPP
+SUM(IIF([PollingPlaceID]!=0,([votes from SA1]*[Australian Labor Party Percentage]/100),0))
+
+# TPP non postal
+[Intermediate step non postal / absentee * Labor TPP]/[Votes non postal / absentee from SA1]
+
+# TPP for postals based on difference between % for Absentee / Postals combined 
+# TPP postal 
+[TPP non postal] - 0.03167
+
+# Combined Postal and non postal using TPP for both times the amount of votes of each time from an area divided by total votes cast
+# In effect this creates a ratio for each of the TPP's used and so produces a reasonably accurate estimate
+# TPP Postal +  non postal
+([TPP non postal]*[Votes non postal / absentee from SA1]+[TPP Postal / absentee  approx]*[Votes postal/ absentee])/([Votes non postal / absentee from SA1]+[Votes postal/ absentee])
+
+
+## Swing against LNP incumbent calculation (more negative is good) based on local area
+
+# Swing intermediate step non postal / absentee
+SUM(IIF([PollingPlaceID]!=0,([votes from SA1]*[Swing]/100),0))
+
+# Swing non postals / absentee
+[Swing intermediate step non postal / absentee ]/[Votes non postal / absentee from SA1]
+
+# Swing Postals based on local area rather than universal
+[Swing non postal] - 0.0105

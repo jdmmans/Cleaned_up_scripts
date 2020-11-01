@@ -1,0 +1,19 @@
+### This part is for bell wether seats
+IF CONTAINS(
+         ",Robertson,Eden-Monaro,Linday,Makin,Bass,Braddon,"
+         ,
+
+         "," + [Electorate] + ","
+    )=TRUE 
+THEN [ALP_TPP]+ 2*[TPP modifier per state]
+
+### Accounting for swing to ALP being stronger in Metro seats compared to rural areas
+ELSEIF [Classification] = "Inner Metropolitan"
+THEN [ALP_TPP]+ 1.5*[TPP modifier per state]
+ELSEIF [Classification] = "Outer Metropolitan" OR [Electorate] = "Casey"
+THEN [ALP_TPP]+ 1.25*[TPP modifier per state]
+ELSEIF [Classification] = "Provincial"
+THEN [ALP_TPP]+ .75*[TPP modifier per state]
+ELSEIF [Classification] = "Rural"
+THEN [ALP_TPP]+ .5*[TPP modifier per state]
+END

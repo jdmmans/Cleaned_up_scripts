@@ -1,0 +1,60 @@
+File="../RepeatMasker.out"
+
+## Pre setting of file name for Column 2
+Tempvar=${File%.*}
+File_Name=${Tempvar##*/}
+
+## Make test directory to avoid confusion
+mkdir $File_Name
+cd ./$File_Name
+
+## Removing top two lines + making all delim be a single space
+length=$(wc -l $File)
+set -- $length
+start=$((${1} -2))
+sed 's/  \+/ /g' ../RepeatMasker.out > ./Nospaces.txt
+tail -n ${start} ./Nospaces.txt > ./importantbits.txt
+rm ./Nospaces.txt
+
+## remove starting space on line 
+cut -f 2- -d ' ' ./importantbits.txt > ./test.txt
+rm ./importantbits.txt 
+
+## Get name of query sequence from file, put first, to be added in order this was coded
+awk '{ print $5 }' < test.txt > query.txt
+
+## Get File minus extension to be second
+for i in $(seq 1 $start); do echo $File_Name >> name.txt; done
+
+## Not present in file, put dispersed repeat third
+for i in $(seq 1 $start); do echo 'dispersed_repeat' >> repeat_type.txt; done
+
+## Repeat begin and end fourth/fifth
+awk '{ print $6 }' < test.txt > begin.txt
+awk '{ print $7 }' < test.txt > end.txt
+
+## score for repeats
+awk '{ print $1 }' < test.txt > score.txt
+
+## Strand
+awk '{ print $9 }' < test.txt > strand.txt
+
+## Phase, not present in input file add unknown
+for i in $(seq 1 $start); do echo '.' >> phase.txt; done
+
+## Repeat section 
+awk '{ print $10 }' < test.txt > reps.txt
+for i in $(seq 1 $start); do echo 'Target=' >> repeat2.txt; done
+paste repeat2.txt reps.txt > Repeats.txt
+sed -i "s/[[:space:]]//g" Repeats.txt ## Remove space between Target= and Matching repeat
+awk '{ print $12,$13 }' < test.txt > repeatspot.txt ## Begining and end of sequence in repeat
+paste Repeats.txt repeatspot.txt > 2Repeats.txt
+sed -e "s/\t/ /g" 2Repeats.txt > Repeat.txt
+
+## add all back together
+echo "##gff-version 3" > immitation.gff3
+echo "" >> immitation.gff3
+paste query.txt name.txt repeat_type.txt begin.txt end.txt score.txt strand.txt phase.txt Repeat.txt >> immitation.gff3
+
+## Clean up
+rm -v !("immitation.gff3")

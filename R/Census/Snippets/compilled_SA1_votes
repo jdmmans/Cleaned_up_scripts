@@ -1,0 +1,11 @@
+library(data.table)
+Polls = read.csv("/Users/Julius/Downloads/Goldstein_polling_data.csv")
+Bit1 = with(Polls, Australian.Labor.Party.Percentage*votes.from.SA1/100)
+Bit2 = subset(Polls, select = c(SA1_id, votes.from.SA1))
+Bits_wanted = cbind(Bit2,Bit1)
+Bits_wanted.dt = data.table(Bits_wanted, key='SA1_id')
+Prep = Bits_wanted.dt[,list(ALP_votes=sum(Bit1), Votes=sum(votes.from.SA1)), by='SA1_id']
+ALP_percent = with(Prep, ALP_votes/Votes)
+Finn = subset(Prep, select = c(SA1_id))
+Final = cbind(Finn,ALP_percent)
+write.csv(Final, file = "gold_poll.csv")

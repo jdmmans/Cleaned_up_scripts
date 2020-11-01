@@ -1,0 +1,165 @@
+---
+title: "Preliminary data analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE) 
+require(ggplot2)
+require(RColorBrewer)
+require(tidyverse)
+library(RColorBrewer)
+library(ggplot2)
+library(ggtree)
+met <- read.csv("/Users/jmmans/Desktop/emm75_meta/emm75in/emm75_meta_analysistime.csv", header = TRUE, row.names = 1) #set meta data to be readily accessed
+sovcol<- geom_bar(col="#FFFF00", fill="#a50f15") ## glorious proteriat revolution colour scheme 
+```
+
+## No. of isolates from different countries
+
+```{r country} 
+p1 <-ggplot(data=met, aes(Country)) #plot data acquisition 
+p1.1<- p1 + sovcol #add Soviet colours from setup
+p1.2<- p1.1 + geom_text(stat='count', aes(label=..count..), vjust=-0.45) # add count just above graph and print off result
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Country.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File)) # create file if absent
+p1.2 # actually print the damned thing
+```
+
+## No. of isolates from different continents
+
+```{r continent} 
+p2 <-ggplot(data=met, aes(Continent)) #getting data for plot
+p2.1<- p2 + sovcol #add Soviet colours from setup
+p2.2<- p2.1 + geom_text(stat='count', aes(label=..count..), vjust=-0.45) # add count just above graph and print off result
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Continent.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File)) # create file if absent
+p2.2
+``` 
+
+## No. of clinical manifestations in data
+
+```{r disease}
+p3 <- ggplot(data=met, aes(Disease)) #same as country names
+p3.1<- p3 + sovcol #add Soviet colours from setup
+p3.2<- p3.1 + geom_text(stat='count', aes(label=..count..), vjust=-0.45) # add count just above graph and print off result
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Disease.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File)) # create file if absent
+p3.2
+```
+
+## No. of different tissue sources
+
+```{r tissue} 
+p1 <-ggplot(data=met, aes(x=tissue)) #plot data acquisition 
+p1.2<- p1 + sovcol #add Soviet colours from setup
+p1.3<- p1.2 + geom_text(stat='count', aes(label=..count..), vjust=-0.45) # add count just above graph and print off result
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/Tissue_source.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File)) # create file if absent
+p1.3 # actually print the damned thing
+```
+
+## Rain vs temperature
+
+```{r rain vs temp}
+# basic scatterplot 
+library(Hmisc)
+library(ggplot2)
+library(gridExtra)
+met <- read.csv("/Users/jmmans/Desktop/emm75_meta/emm75in/emm75_meta_analysistime.csv", header = TRUE, row.names = 1) #set meta data to be readily accessed
+m <- lm(met$Rainfall ~ met$Temperature)
+a <- signif(coef(m)[1], digits = 2)
+b <- signif(coef(m)[2], digits = 2)
+textlab <- paste("y = ",b,"x + ",a, sep="")
+p1 <- ggplot(met, aes(x=Rainfall, y=Temperature)) + geom_point(color="red") + geom_smooth(method = "lm", se = TRUE)
+r2 <- p1 + annotate("text", x = 2300, y = 20, label = textlab, color="black", size = 5, parse=FALSE)# making it a scatterplot
+File<- "/Users/jmmans/Desktop/emm75_meta/emm75out/RainTemp.png" #don't override stuff, need to print off 
+if (!file.exists(File)) suppressMessages(ggsave(File)) # create file if absent
+r2 # actually print the damned thing
+```
+
+## Tanglegram of accessory and core genome
+
+```{r phylogeny, fig.height = 7, fig.width = 15, echo = FALSE, message = FALSE}
+# core phylogeny tree
+library(phylogram)
+library(ape)
+library(gplots)
+library(dendextend)
+coretree<- "/Users/jmmans/Desktop/coretree"
+accessorytree<- "/Users/jmmans/Desktop/accessorytree"
+
+# tanglegram of core VS accessory genome
+dnd1 <- read.dendrogram(coretree)
+dnd2 <- read.dendrogram(accessorytree)
+## plot the tanglegram
+dndlist <- dendextend::dendlist(dnd1, dnd2)
+dendextend::tanglegram(dndlist, margin_inner = 8,  sort = TRUE,  common_subtrees_color_lines = TRUE, common_subtrees_color_branches = T)
+```
+## Virulence factors and metadata for Core and Accessory phylogeny's
+
+```{R virulence + Meta for Core and Accessory , fig.height = 7, fig.width = 15,}
+library(phylogram)
+library(ape)
+library(dendextend)
+library(dplyr)
+# loading in phylo tress + read leafs
+coretree<- "/Users/jmmans/Desktop/coretree"
+accessorytree<- "/Users/jmmans/Desktop/accessorytree"
+cPhylo1 <- read.dendrogram(file = coretree)
+cPhylo2 <- read.dendrogram(accessorytree)
+cd1<- read.tree(coretree)
+cd2<- read.tree(accessorytree)
+cord1<- cd1[["tip.label"]]
+cord2<- cd2[["tip.label"]]
+
+# load in data then arrange
+ab0 <- read.csv("/Users/jmmans/Desktop/Virulence.csv", header = TRUE)
+ab1 <- arrange(ab0, factor(Isolate, levels = cord1))
+ME <- read.csv("/Users/jmmans/Desktop/emm75_me2_presence_asbence.csv", header = TRUE)
+ME <- arrange(ME, factor(Isolate, levels = cord1))
+Iso<- subset(ME, select= c(Isolate))
+abE<- subset(ME, select= c(Invasive, W.European, N.American, Other_Location))
+
+ab1<- cbind(ab1,abE)
+ab1<- subset(ab1, select= -c(Isolate, NUM_FOUND))
+ab1[ab1 == "."] <- "black" 
+ab1[ab1 == "0"] <- "black" 
+ab1[ab1 < 99.99 & ab1 >95 ] <- "grey"
+ab1[ab1 > 5 & ab1 <95 ] <- "black"
+ab1[ab1 == "100.00;100.00"] <- "white"
+ab1[ab1 == "99.41;95.86"] <- "white"
+ab1[ab1 == "100"] <- "white"
+ab1[ab1 == "1"]  <- "white"
+ab1<- cbind(ab1, Iso)
+
+# Divide into 3 portions, recolour from black and white two of them
+crr <- ab1 %>% dplyr::filter(row_number() %% 3 == 0)
+crr1 <- ab1 %>% dplyr::filter(row_number() %% 3 == 1)
+crr2 <- ab1 %>% dplyr::filter(row_number() %% 3 == 2)
+crr[crr == "black"] <- "black" 
+crr[crr == "white"] <- "red"
+crr1[crr1 == "black"] <- "black" 
+crr1[crr1 == "white"] <- "blue"
+ab1 <- rbind(crr2,crr1,crr)
+ab1 <- arrange(ab1, factor(Isolate, levels = cord1))
+
+# accessory genome arrangement, strange pattern of having mutliples of the same next to each other but seems to be nothing 
+ab2 <- arrange(ab1, factor(Isolate, levels = cord2))
+
+# edit data to remove sorting category
+ab1 <- subset(ab1, select= -c(Isolate))
+ab2 <- subset(ab2, select= -c(Isolate))
+c1<- names(ab1)
+c2<- names(ab2)
+
+# virulence + core phylogeny being plotted together
+par(mar = c(25,8,1,1))
+plot(cPhylo1)
+colored_bars(ab1, dend = cPhylo1, rowLabels = c1)
+
+# virulence + accessory phylogeny 
+par(mar = c(25,8,1,1))
+plot(cPhylo2)
+colored_bars(ab2, dend = cPhylo2, rowLabels = c2)
+```

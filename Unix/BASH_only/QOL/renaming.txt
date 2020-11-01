@@ -1,0 +1,3 @@
+ls | while read line; do
+        if [[ "$line" == *"GCA"* ]] ; then
+mv $line ./${line:6}

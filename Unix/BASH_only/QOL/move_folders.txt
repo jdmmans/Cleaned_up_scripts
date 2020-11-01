@@ -1,0 +1,3 @@
+ls ./fst | while read line; do 
+  cp ./fst/${line}/snps.aligned.fa ./contigs/${line}.fa; 
+done
