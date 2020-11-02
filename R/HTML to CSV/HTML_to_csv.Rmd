@@ -1,0 +1,34 @@
+---
+title: "2018 vic extraction"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load in}
+library(RCurl)
+library(XML)
+library(stringr)
+
+#list of all Vicotrian electorates to automate printing off data, print off into the geturl 
+elec = read.csv("/Users/Julius/Downloads/SED_2016_AUST.csv")
+elec = elec[elec$STATE_NAME_2016 == 'Victoria',]
+elec = elec[!duplicated(elec$SED_NAME_2016), ]
+
+## remove the ('upper house region'), make all variables not have a gap if two or more words, 
+## regex explaination \\s+ indicates select space, \\( makes the bracket a literal character rather than special, .* is essentially a wildcard matching everythin afterwards assuming the initial matches -> aka if " (" occurs remove it and all subsequent characters
+part = gsub("\\s+\\(.*","",as.character(elec$SED_NAME_2016))
+electorates = tolower(gsub(" ", "", part, fixed = TRUE))
+
+# print(part), for debugging if it crashes
+
+## take all victorian electorates, paste these into the format of the website, get the polling booth data, print these off to a CSV file of the electorates name
+for (i in electorates){
+  #print(i) also debugging for crashes
+    Booth_data <- readHTMLTable(getURL(paste0("https://itsitecoreblobvecprd.blob.core.windows.net/public-files/historical-results/state2018/fpvbyvotingcentre",i,"district.html")),
+                         stringsAsFactors = FALSE)[[3]][,] ## extract all variables of note from the site
+   write.csv(Booth_data, file = paste0(i,".csv")) ## print off booth results to CSV 
+}
+```
