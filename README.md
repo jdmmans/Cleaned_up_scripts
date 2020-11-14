@@ -1,4 +1,2 @@
 # scripts
-A place where I store various backend scripts for making programs work on spartan, R scripts for visualising data
-
-SQLite was written in a Jupyter notebook using SQLAchemy
+Various backend scripts for making programs work on the HPC spartan, R scripts for visualising data, Ecclectic mix of Python scripts, and hybrid SQLite pandas example
