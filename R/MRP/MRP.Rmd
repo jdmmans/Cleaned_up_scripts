@@ -131,53 +131,75 @@ proper_names <- proper_names[order(proper_names$Ced.Code16),] ## sorting variabl
 census2 <- subset(census1, select= -c(CED_CODE_2016)) ## drop useless CED code
 names <- subset(proper_names, select = c(Ced.Name)) ## get electorate name
 census_final <- cbind(names,census2) ## join electorate name to DF
-rm(census,census1,census2,proper_names) ## clear out variables that aren't needed 
+census_final <- census_final[order(census_final$Ced.Name),] ## electorates in alphabetical order
 ```
 
 ```{R 2016 election prep}
 
 ## Creating Data frame with ALP 2016 votes and total votes(use this to decrease the total number of people in an electorate?)
 
-tpp2016 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/e2016-current-data-tpp-28-04.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
+tpp2016 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/HouseTppByDivisionDownload-20499.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
 
-## Need to sum up preference votes for both parties in a seat and make new variable for that seat, grab the ones with PartyAb ALP (No need to change LNP/NP to LP), calculate ALP %
-
-votes_per_division <- subset(tpp2016, select= c(DivisionName,PreferenceVotes))
-tot_vot <- ddply(votes_per_division, "DivisionName", numcolwise(sum)) ## votes per division
-colnames(tot_vot) [2] <- "All_Votes" ## rename column
-temp <- filter(tpp2016, PartyAb == "ALP") ## get ALP TPP as it's nationwide
-temp2 <- temp[order(temp$DivisionName),]## sort by division name
-colnames(temp2) [6] <- "ALP_Votes" ## rename column
-tpp <- cbind(temp2,tot_vot)
+votes <- tpp2016$Australian.Labor.Party.Votes / tpp2016$TotalVotes ## ALP TPP
 ```
+Problem: Facing significant issue here with the census data, not really compatible with how it was set up in the example. 
+Sample data in the example is essentially a series of various variables associated with an outcome and whether they liked cats, as compared to census data which is all actual info.
 
+Solution: Transform everything into percentages.
+
+What matters when deciding a vote? Age, Religion, Education, Xenophobia, Gender
+ 
+Age -> Various age groups -> Age_0_4_yr_M Age_5_14_yr_M Age_15_19_yr_M Age_20_24_yr_M Age_25_34_yr_M Age_35_44_yr_M Age_45_54_yr_M Age_55_64_yr_M Age_65_74_yr_M Age_75_84_yr_M Age_85ov_M
+Xeno -> Age groups + English only in home + indigenous persons + Born in Aus (Assimilation Metric has to be programmed in) -> (Age bins) + Lang_spoken_home_Eng_only_M + Indigenous_P_Tot_M + Birthplace_Australia_M
+Education -> Education groups -> Create bins for completed / undergoing VCE vs Dropped out
+Gender -> Use genders bins rather than _P
+Housing -> Private vs Public - Count_psns_occ_priv_dwgs_M Count_Persons_other_dwgs_M 
+```{r binning}
+
+temp <- colnames(census_final)
+
+## VCE 
+VCE_M <- rowSums(census_final[,c("High_yr_schl_comp_Yr_12_eq_M", "Age_psns_att_edu_inst_25_ov_M", "Age_psns_att_edu_inst_20_24_M","Age_psns_att_edu_inst_15_19_M", "Age_psns_att_educ_inst_5_14_M", "Age_psns_att_educ_inst_0_4_M")])
+
+VCE_F <- rowSums(census_final[,c("High_yr_schl_comp_Yr_12_eq_F", "Age_psns_att_edu_inst_25_ov_F", "Age_psns_att_edu_inst_20_24_F","Age_psns_att_edu_inst_15_19_F", "Age_psns_att_educ_inst_5_14_F", "Age_psns_att_educ_inst_0_4_F")])
+
+##non VCE
+
+Un_M <- rowSums(census_final[,c("High_yr_schl_comp_Yr_11_eq_M", "High_yr_schl_comp_Yr_10_eq_M", "High_yr_schl_comp_Yr_9_eq_M","High_yr_schl_comp_Yr_8_belw_M", "High_yr_schl_comp_D_n_g_sch_M")])
+
+Un_F <- rowSums(census_final[,c("High_yr_schl_comp_Yr_11_eq_F", "High_yr_schl_comp_Yr_10_eq_F", "High_yr_schl_comp_Yr_9_eq_F","High_yr_schl_comp_Yr_8_belw_F", "High_yr_schl_comp_D_n_g_sch_F")])
+
+Census_manip <- subset(census_final, select= -c(High_yr_schl_comp_Yr_11_eq_M,High_yr_schl_comp_Yr_10_eq_M,High_yr_schl_comp_Yr_9_eq_M,High_yr_schl_comp_Yr_8_belw_M,High_yr_schl_comp_D_n_g_sch_M,High_yr_schl_comp_Yr_11_eq_F,High_yr_schl_comp_Yr_10_eq_F,High_yr_schl_comp_Yr_9_eq_F,High_yr_schl_comp_Yr_8_belw_F,High_yr_schl_comp_D_n_g_sch_F,High_yr_schl_comp_Yr_12_eq_M, Age_psns_att_edu_inst_25_ov_M, Age_psns_att_edu_inst_20_24_M,Age_psns_att_edu_inst_15_19_M, Age_psns_att_educ_inst_5_14_M, Age_psns_att_educ_inst_0_4_M,High_yr_schl_comp_Yr_12_eq_F, Age_psns_att_edu_inst_25_ov_F, Age_psns_att_edu_inst_20_24_F,Age_psns_att_edu_inst_15_19_F, Age_psns_att_educ_inst_5_14_F, Age_psns_att_educ_inst_0_4_F))
+
+census <- cbind(Census_manip,Un_M,Un_F,VCE_M,VCE_F) ## overwriting initial census variable
+
+## Getting every datapoint as % 
+temp <- subset(census, select= c(Ced.Name)) # grab electorate name for later due to be non numeric
+census <- subset(census, select= -c(Ced.Name)) # remove electorate name
+census <- census / census$Tot_P_P # divide every variable by the total population to get % for each category
+census <- subset(census, select= -c(Tot_P_P)) # remove useless variable
+census <- cbind(census,temp) # add electorate name back in
+census <- filter(census, Ced.Name %in% tpp2016$DivisionNm) ## filter census data to only be from electorates
+census <- subset(census, select= -c(Ced.Name))
+census <- cbind(census,votes)
+```
 ```{r manipulation}
-## In this example it is analysing the various demographics and checking to see cat preference
 
-sample <- mrp_sim[["sample"]] ## assigning sample to be analysed
-rbind(head(sample), tail(sample)) ## display values for looking over
-
-poststrat <- mrp_sim[["poststrat"]]
-rbind(head(poststrat), tail(poststrat)) ## display values for looking over
-true_popn <- mrp_sim[["true_popn"]]
-rbind(head(true_popn), tail(true_popn)) ## display values for looking over
-
-sample$state <- factor(sample$state, levels=1:50)
-sample$state <- with(sample, factor(state, levels=order(table(state))))
-true_popn$state <- factor(true_popn$state,levels = levels(sample$state))
-poststrat$state <- factor(poststrat$state,levels = levels(sample$state))
-
+## clean up variable set up from earlier ## breaks initial fake data generation step
+#rm(list=setdiff(ls(), "census")) ## neatly clear out all variables
 
 ## Modeling in actuality
 fit <- stan_glmer(
-  cat_pref ~ factor(male) + factor(male) * factor(age) + ## consider gender, as well as differences between ages for that gender
-    (1 | state) + (1 | age) + (1 | eth) + (1 | income), ## include intercepts in the cells based on data we have, but are not using 
-  family = binomial(link = "logit"), ## exponential probability, i.e no one demo will ever vote 100% one way
-  data = sample ## data being in the model
+  votes ~ factor(Un_M) +  
+    (1 |  Count_psns_occ_priv_dwgs_M) + (1 | Indigenous_P_Tot_M) + (1 | Birthplace_Australia_M), ## include intercepts in the cells based on data we have, but are not using 
+  family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
+  data = census ## data being in the model
 )
 print(fit) ## display values for looking over
 
-posterior_prob <- posterior_linpred(fit, transform = TRUE, newdata = poststrat)
+### Gaussian distribution functions now
+
+posterior_prob <- posterior_linpred(fit, transform = TRUE, newdata = census)
 poststrat_prob <- posterior_prob %*% poststrat$N / sum(poststrat$N)
 model_popn_pref <- c(mean = mean(poststrat_prob), sd = sd(poststrat_prob))
 round(model_popn_pref, 3)
