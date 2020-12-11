@@ -237,15 +237,4 @@ for(i in 1:length(levels(as.factor(census$rowname)))) {
   state_df$diff_in_TPP <- abs(state_df$model_state_TPP - state_df$true_state_TPP)
   }
 
-state_df[c(1,3:6)]
-
-round(100 * c(
-  mean = mean(abs(state_df$sample_state_pref-state_df$true_state_pref), na.rm = TRUE),
-  max = max(abs(state_df$sample_state_pref-state_df$true_state_pref), na.rm = TRUE)
-))
-
-round(100 * c(
-  mean = mean(abs(state_df$model_state_pref-state_df$true_state_pref)),
-  max = max(abs(state_df$model_state_pref-state_df$true_state_pref))))
-
 ```
