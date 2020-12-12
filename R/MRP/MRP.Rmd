@@ -8,9 +8,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(rstanarm)
 library(ggplot2)
 library(bayesplot)
+library(plyr)
 library(dplyr)
 library(tidyr)
-library(plyr)
 library(tibble)
 ```
 
@@ -181,7 +181,6 @@ census <- census / census$Tot_P_P # divide every variable by the total populatio
 census <- subset(census, select= -c(Tot_P_P)) # remove useless variable
 census <- cbind(census,temp) # add electorate name back in
 census <- filter(census, Ced.Name %in% tpp2016$DivisionNm) ## filter census data to only be from electorates
-census <- subset(census, select= -c(Ced.Name))
 census <- cbind(census,votes)
 ```
 ```{r manipulation}
@@ -189,10 +188,15 @@ census <- cbind(census,votes)
 ## clean up variable set up from earlier ## breaks initial fake data generation step
 #rm(list=setdiff(ls(), "census")) ## neatly clear out all variables
 
+census$votes <- round(census$votes,2)
+census$Un_M <- round(census$Un_M,1)
+census$Birthplace_Australia_M <- round(census$Birthplace_Australia_M,2)
+census$Lang_spoken_home_Eng_only_M <- round(census$Lang_spoken_home_Eng_only_M,2)
+
 ## Modeling in actuality
 fit <- stan_glmer(
   votes ~ factor(Un_M) +  
-    (1 | Birthplace_Australia_M) + (1|Lang_spoken_home_Eng_only_M), ## include intercepts in the cells based on data we have, but are not using 
+      (1 | Birthplace_Australia_M) + (1|Lang_spoken_home_Eng_only_M), ## try more factors / combine them, eg  cat_pref ~ factor(male) + factor(male) * factor(age) + (1 | state) +  (1 | age) + (1 | eth) + (1 | income)
   family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
   data = census ## data being in the model
 )
@@ -235,6 +239,6 @@ for(i in 1:length(levels(as.factor(census$rowname)))) {
   state_df$N[i] <- length(census$votes[census$state == i]) ## what does this do?
   state_df$true_state_TPP <- census$votes
   state_df$diff_in_TPP <- abs(state_df$model_state_TPP - state_df$true_state_TPP)
+  state_df$electorate <- census$Ced.Name
   }
-
 ```
