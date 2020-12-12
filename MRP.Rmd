@@ -1,0 +1,256 @@
+---
+title: "MRP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rstanarm)
+library(ggplot2)
+library(bayesplot)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+```{r example data gen}
+## Used for generating random data in MRP example
+
+if (!exists('mrp_sim')){ ## Defining function skipped if already defined
+
+  simulate_mrp_data <- function(n) {
+  J <- c(2, 3, 7, 3, 50) # male or not, eth, age, income level, state
+  poststrat <- as.data.frame(array(NA, c(prod(J), length(J)+1))) # Columns of post-strat matrix, plus one for size
+  colnames(poststrat) <- c("male", "eth", "age","income", "state",'N')
+  count <- 0
+  for (i1 in 1:J[1]){
+    for (i2 in 1:J[2]){
+      for (i3 in 1:J[3]){
+        for (i4 in 1:J[4]){
+          for (i5 in 1:J[5]){
+              count <- count + 1
+              # Fill them in so we know what category we are referring to
+              poststrat[count, 1:5] <- c(i1-1, i2, i3,i4,i5) 
+          }
+        }
+      }
+    }
+  }
+  # Proportion in each sample in the population
+  p_male <- c(0.52, 0.48)
+  p_eth <- c(0.5, 0.2, 0.3)
+  p_age <- c(0.2,.1,0.2,0.2, 0.10, 0.1, 0.1)
+  p_income<-c(.50,.35,.15)
+  p_state_tmp<-runif(50,10,20)
+  p_state<-p_state_tmp/sum(p_state_tmp)
+  poststrat$N<-0
+  for (j in 1:prod(J)){
+    poststrat$N[j] <- round(250e6 * p_male[poststrat[j,1]+1] * p_eth[poststrat[j,2]] *
+      p_age[poststrat[j,3]]*p_income[poststrat[j,4]]*p_state[poststrat[j,5]]) #Adjust the N to be the number observed in each category in each group
+  }
+  
+  # Now let's adjust for the probability of response
+  p_response_baseline <- 0.01
+  p_response_male <- c(2, 0.8) / 2.8
+  p_response_eth <- c(1, 1.2, 2.5) / 4.7
+  p_response_age <- c(1, 0.4, 1, 1.5,  3, 5, 7) / 18.9
+  p_response_inc <- c(1, 0.9, 0.8) / 2.7
+  p_response_state <- rbeta(50, 1, 1)
+  p_response_state <- p_response_state / sum(p_response_state)
+  p_response <- rep(NA, prod(J))
+  for (j in 1:prod(J)) {
+    p_response[j] <-
+      p_response_baseline * p_response_male[poststrat[j, 1] + 1] *
+      p_response_eth[poststrat[j, 2]] * p_response_age[poststrat[j, 3]] *
+      p_response_inc[poststrat[j, 4]] * p_response_state[poststrat[j, 5]]
+  }
+  people <- sample(prod(J), n, replace = TRUE, prob = poststrat$N * p_response)
+  
+  ## For respondent i, people[i] is that person's poststrat cell,
+  ## some number between 1 and 32
+  n_cell <- rep(NA, prod(J))
+  for (j in 1:prod(J)) {
+    n_cell[j] <- sum(people == j)
+  }
+  
+  coef_male <- c(0,-0.3)
+  coef_eth <- c(0, 0.6, 0.9)
+  coef_age <- c(0,-0.2,-0.3, 0.4, 0.5, 0.7, 0.8, 0.9)
+  coef_income <- c(0,-0.2, 0.6)
+  coef_state <- c(0, round(rnorm(49, 0, 1), 1))
+  coef_age_male <- t(cbind(c(0, .1, .23, .3, .43, .5, .6),
+                           c(0, -.1, -.23, -.5, -.43, -.5, -.6)))
+  true_popn <- data.frame(poststrat[, 1:5], cat_pref = rep(NA, prod(J)))
+  for (j in 1:prod(J)) {
+    true_popn$cat_pref[j] <- plogis(
+      coef_male[poststrat[j, 1] + 1] +
+        coef_eth[poststrat[j, 2]] + coef_age[poststrat[j, 3]] +
+        coef_income[poststrat[j, 4]] + coef_state[poststrat[j, 5]] +
+        coef_age_male[poststrat[j, 1] + 1, poststrat[j, 3]]
+      )
+  }
+  
+  #male or not, eth, age, income level, state, city
+  y <- rbinom(n, 1, true_popn$cat_pref[people])
+  male <- poststrat[people, 1]
+  eth <- poststrat[people, 2]
+  age <- poststrat[people, 3]
+  income <- poststrat[people, 4]
+  state <- poststrat[people, 5]
+  
+  sample <- data.frame(cat_pref = y, 
+                       male, age, eth, income, state, 
+                       id = 1:length(people))
+  
+  #Make all numeric:
+  for (i in 1:ncol(poststrat)) {
+    poststrat[, i] <- as.numeric(poststrat[, i])
+  }
+  for (i in 1:ncol(true_popn)) {
+    true_popn[, i] <- as.numeric(true_popn[, i])
+  }
+  for (i in 1:ncol(sample)) {
+    sample[, i] <- as.numeric(sample[, i])
+  }
+  list(
+    sample = sample,
+    poststrat = poststrat,
+    true_popn = true_popn
+  )
+}
+## define function data points, print
+mrp_sim <- simulate_mrp_data(n=1200)
+str(mrp_sim)
+}
+```
+```{R Census prep}
+census <- read.csv("C:/Users/Julius/Downloads/Census_useful/2016Census_G01_AUS_CED.csv", header = TRUE)
+census1 <- census[order(census$CED_CODE_2016),]
+proper_names <- read.csv("C:/Users/Julius/Downloads/Census_useful/CED_DivisionNms.csv", header = TRUE)
+proper_names <- proper_names[order(proper_names$Ced.Code16),] ## sorting variables
+census2 <- subset(census1, select= -c(CED_CODE_2016)) ## drop useless CED code
+names <- subset(proper_names, select = c(Ced.Name)) ## get electorate name
+census_final <- cbind(names,census2) ## join electorate name to DF
+census_final <- census_final[order(census_final$Ced.Name),] ## electorates in alphabetical order
+```
+
+```{R 2016 election prep}
+
+## Creating Data frame with ALP 2016 votes and total votes(use this to decrease the total number of people in an electorate?)
+
+tpp2016 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/HouseTppByDivisionDownload-20499.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
+
+votes <- tpp2016$Australian.Labor.Party.Votes / tpp2016$TotalVotes ## ALP TPP
+```
+Problem: Facing significant issue here with the census data, not really compatible with how it was set up in the example. 
+Sample data in the example is essentially a series of various variables associated with an outcome and whether they liked cats, as compared to census data which is all actual info.
+
+Solution: Transform everything into percentages.
+
+What matters when deciding a vote? Age, Religion, Education, Xenophobia, Gender
+ 
+Age -> Various age groups -> Age_0_4_yr_M Age_5_14_yr_M Age_15_19_yr_M Age_20_24_yr_M Age_25_34_yr_M Age_35_44_yr_M Age_45_54_yr_M Age_55_64_yr_M Age_65_74_yr_M Age_75_84_yr_M Age_85ov_M
+Xeno -> Age groups + English only in home + indigenous persons + Born in Aus (Assimilation Metric has to be programmed in) -> (Age bins) + Lang_spoken_home_Eng_only_M + Indigenous_P_Tot_M + Birthplace_Australia_M
+Education -> Education groups -> Create bins for completed / undergoing VCE vs Dropped out
+Gender -> Use genders bins rather than _P
+Housing -> Private vs Public - Count_psns_occ_priv_dwgs_M Count_Persons_other_dwgs_M 
+```{r binning}
+
+temp <- colnames(census_final)
+
+## VCE 
+VCE_M <- rowSums(census_final[,c("High_yr_schl_comp_Yr_12_eq_M", "Age_psns_att_edu_inst_25_ov_M", "Age_psns_att_edu_inst_20_24_M","Age_psns_att_edu_inst_15_19_M", "Age_psns_att_educ_inst_5_14_M", "Age_psns_att_educ_inst_0_4_M")])
+
+VCE_F <- rowSums(census_final[,c("High_yr_schl_comp_Yr_12_eq_F", "Age_psns_att_edu_inst_25_ov_F", "Age_psns_att_edu_inst_20_24_F","Age_psns_att_edu_inst_15_19_F", "Age_psns_att_educ_inst_5_14_F", "Age_psns_att_educ_inst_0_4_F")])
+
+##non VCE
+
+Un_M <- rowSums(census_final[,c("High_yr_schl_comp_Yr_11_eq_M", "High_yr_schl_comp_Yr_10_eq_M", "High_yr_schl_comp_Yr_9_eq_M","High_yr_schl_comp_Yr_8_belw_M", "High_yr_schl_comp_D_n_g_sch_M")])
+
+Un_F <- rowSums(census_final[,c("High_yr_schl_comp_Yr_11_eq_F", "High_yr_schl_comp_Yr_10_eq_F", "High_yr_schl_comp_Yr_9_eq_F","High_yr_schl_comp_Yr_8_belw_F", "High_yr_schl_comp_D_n_g_sch_F")])
+
+Census_manip <- subset(census_final, select= -c(High_yr_schl_comp_Yr_11_eq_M,High_yr_schl_comp_Yr_10_eq_M,High_yr_schl_comp_Yr_9_eq_M,High_yr_schl_comp_Yr_8_belw_M,High_yr_schl_comp_D_n_g_sch_M,High_yr_schl_comp_Yr_11_eq_F,High_yr_schl_comp_Yr_10_eq_F,High_yr_schl_comp_Yr_9_eq_F,High_yr_schl_comp_Yr_8_belw_F,High_yr_schl_comp_D_n_g_sch_F,High_yr_schl_comp_Yr_12_eq_M, Age_psns_att_edu_inst_25_ov_M, Age_psns_att_edu_inst_20_24_M,Age_psns_att_edu_inst_15_19_M, Age_psns_att_educ_inst_5_14_M, Age_psns_att_educ_inst_0_4_M,High_yr_schl_comp_Yr_12_eq_F, Age_psns_att_edu_inst_25_ov_F, Age_psns_att_edu_inst_20_24_F,Age_psns_att_edu_inst_15_19_F, Age_psns_att_educ_inst_5_14_F, Age_psns_att_educ_inst_0_4_F))
+
+census <- cbind(Census_manip,Un_M,Un_F,VCE_M,VCE_F) ## overwriting initial census variable
+
+## Getting every datapoint as % 
+temp <- subset(census, select= c(Ced.Name)) # grab electorate name for later due to be non numeric
+census <- subset(census, select= -c(Ced.Name)) # remove electorate name
+census <- census / census$Tot_P_P # divide every variable by the total population to get % for each category
+census <- subset(census, select= -c(Tot_P_P)) # remove useless variable
+census <- cbind(census,temp) # add electorate name back in
+census <- filter(census, Ced.Name %in% tpp2016$DivisionNm) ## filter census data to only be from electorates
+census <- cbind(census,votes)
+```
+```{r manipulation}
+
+## clean up variable set up from earlier ## breaks initial fake data generation step
+#rm(list=setdiff(ls(), "census")) ## neatly clear out all variables
+
+census$votes1 <- round(census$votes,0)
+census$Un_M <- round(census$Un_M,1)
+census$Birthplace_Australia_M <- round(census$Birthplace_Australia_M,2)
+census$Lang_spoken_home_Eng_only_M <- round(census$Lang_spoken_home_Eng_only_M,2)
+
+## Modeling in actuality
+fit <- stan_glmer(
+  votes1 ~ factor(Un_M) +  
+      (1 | Birthplace_Australia_M) + (1|Lang_spoken_home_Eng_only_M), ## try more factors / combine them, eg  cat_pref ~ factor(male) + factor(male) * factor(age) + (1 | state) +  (1 | age) + (1 | eth) + (1 | income)
+  family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
+  data = census ## data being in the model
+)
+
+posterior_prob <- posterior_linpred(fit, transform = TRUE)
+
+## These are the weightings, use % of votes from electorate to weigh sample
+poststrat_prob <- posterior_prob %*% (census$Tot_P_M + census$Tot_P_F) / sum(census$Tot_P_M + census$Tot_P_F) 
+
+model_popn_pref <- c(mean = mean(poststrat_prob), sd = sd(poststrat_prob))
+round(model_popn_pref, 3)
+
+## filler dataframe 
+state_df <- data.frame(
+  State = 1:150,
+  model_state_sd = rep(-1, 150),
+  model_state_TPP = rep(-1, 150),
+  true_state_TPP = rep(-1, 150),
+  N = rep(-1, 150)
+)
+
+## generating new data for the data frame
+census <- rownames_to_column(census)
+rowname <- as.numeric(as.character(unlist(census[[1]])))
+census <- subset(census, select = -c(rowname))
+census <- cbind(census,rowname)
+for(i in 1:length(levels(as.factor(census$rowname)))) {
+  poststrat_state <- census[census$rowname == i, ]
+    posterior_prob_state <- posterior_linpred(
+    fit,
+    transform = TRUE,
+    draws = 1000,
+    newdata = as.data.frame(poststrat_state)
+  )
+  poststrat_prob_state <- (posterior_prob_state %*% poststrat_state$rowname) / sum(poststrat_state$rowname)
+  #This is the estimate for popn in state:
+  state_df$model_state_TPP[i] <- round(mean(poststrat_prob_state), 6)
+  state_df$model_state_sd[i] <- round(sd(poststrat_prob_state), 6)
+  #And what is the actual popn?
+  state_df$N[i] <- length(census$votes[census$state == i]) ## what does this do?
+  state_df$true_state_TPP <- census$votes
+  state_df$diff_in_TPP <- abs(state_df$model_state_TPP - state_df$true_state_TPP)
+  state_df$electorate <- census$Ced.Name
+  }
+
+state_df[c(1,3:6)]
+
+round(100 * c(
+  mean = mean(abs(state_df$sample_state_pref-state_df$true_state_pref), na.rm = TRUE),
+  max = max(abs(state_df$sample_state_pref-state_df$true_state_pref), na.rm = TRUE)
+))
+
+round(100 * c(
+  mean = mean(abs(state_df$model_state_pref-state_df$true_state_pref)),
+  max = max(abs(state_df$model_state_pref-state_df$true_state_pref))))
+
+```
