@@ -1,0 +1,217 @@
+---
+title: "MRP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rstanarm)
+library(ggplot2)
+library(bayesplot)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+```{r example data gen}
+## Used for generating random data in MRP example
+
+if (!exists('mrp_sim')){ ## Defining function skipped if already defined
+
+  simulate_mrp_data <- function(n) {
+  J <- c(2, 3, 7, 3, 50) # male or not, eth, age, income level, state
+  poststrat <- as.data.frame(array(NA, c(prod(J), length(J)+1))) # Columns of post-strat matrix, plus one for size
+  colnames(poststrat) <- c("male", "eth", "age","income", "state",'N')
+  count <- 0
+  for (i1 in 1:J[1]){
+    for (i2 in 1:J[2]){
+      for (i3 in 1:J[3]){
+        for (i4 in 1:J[4]){
+          for (i5 in 1:J[5]){
+              count <- count + 1
+              # Fill them in so we know what category we are referring to
+              poststrat[count, 1:5] <- c(i1-1, i2, i3,i4,i5) 
+          }
+        }
+      }
+    }
+  }
+  # Proportion in each sample in the population
+  p_male <- c(0.52, 0.48)
+  p_eth <- c(0.5, 0.2, 0.3)
+  p_age <- c(0.2,.1,0.2,0.2, 0.10, 0.1, 0.1)
+  p_income<-c(.50,.35,.15)
+  p_state_tmp<-runif(50,10,20)
+  p_state<-p_state_tmp/sum(p_state_tmp)
+  poststrat$N<-0
+  for (j in 1:prod(J)){
+    poststrat$N[j] <- round(250e6 * p_male[poststrat[j,1]+1] * p_eth[poststrat[j,2]] *
+      p_age[poststrat[j,3]]*p_income[poststrat[j,4]]*p_state[poststrat[j,5]]) #Adjust the N to be the number observed in each category in each group
+  }
+  
+  # Now let's adjust for the probability of response
+  p_response_baseline <- 0.01
+  p_response_male <- c(2, 0.8) / 2.8
+  p_response_eth <- c(1, 1.2, 2.5) / 4.7
+  p_response_age <- c(1, 0.4, 1, 1.5,  3, 5, 7) / 18.9
+  p_response_inc <- c(1, 0.9, 0.8) / 2.7
+  p_response_state <- rbeta(50, 1, 1)
+  p_response_state <- p_response_state / sum(p_response_state)
+  p_response <- rep(NA, prod(J))
+  for (j in 1:prod(J)) {
+    p_response[j] <-
+      p_response_baseline * p_response_male[poststrat[j, 1] + 1] *
+      p_response_eth[poststrat[j, 2]] * p_response_age[poststrat[j, 3]] *
+      p_response_inc[poststrat[j, 4]] * p_response_state[poststrat[j, 5]]
+  }
+  people <- sample(prod(J), n, replace = TRUE, prob = poststrat$N * p_response)
+  
+  ## For respondent i, people[i] is that person's poststrat cell,
+  ## some number between 1 and 32
+  n_cell <- rep(NA, prod(J))
+  for (j in 1:prod(J)) {
+    n_cell[j] <- sum(people == j)
+  }
+  
+  coef_male <- c(0,-0.3)
+  coef_eth <- c(0, 0.6, 0.9)
+  coef_age <- c(0,-0.2,-0.3, 0.4, 0.5, 0.7, 0.8, 0.9)
+  coef_income <- c(0,-0.2, 0.6)
+  coef_state <- c(0, round(rnorm(49, 0, 1), 1))
+  coef_age_male <- t(cbind(c(0, .1, .23, .3, .43, .5, .6),
+                           c(0, -.1, -.23, -.5, -.43, -.5, -.6)))
+  true_popn <- data.frame(poststrat[, 1:5], cat_pref = rep(NA, prod(J)))
+  for (j in 1:prod(J)) {
+    true_popn$cat_pref[j] <- plogis(
+      coef_male[poststrat[j, 1] + 1] +
+        coef_eth[poststrat[j, 2]] + coef_age[poststrat[j, 3]] +
+        coef_income[poststrat[j, 4]] + coef_state[poststrat[j, 5]] +
+        coef_age_male[poststrat[j, 1] + 1, poststrat[j, 3]]
+      )
+  }
+  
+  #male or not, eth, age, income level, state, city
+  y <- rbinom(n, 1, true_popn$cat_pref[people])
+  male <- poststrat[people, 1]
+  eth <- poststrat[people, 2]
+  age <- poststrat[people, 3]
+  income <- poststrat[people, 4]
+  state <- poststrat[people, 5]
+  
+  sample <- data.frame(cat_pref = y, 
+                       male, age, eth, income, state, 
+                       id = 1:length(people))
+  
+  #Make all numeric:
+  for (i in 1:ncol(poststrat)) {
+    poststrat[, i] <- as.numeric(poststrat[, i])
+  }
+  for (i in 1:ncol(true_popn)) {
+    true_popn[, i] <- as.numeric(true_popn[, i])
+  }
+  for (i in 1:ncol(sample)) {
+    sample[, i] <- as.numeric(sample[, i])
+  }
+  list(
+    sample = sample,
+    poststrat = poststrat,
+    true_popn = true_popn
+  )
+}
+## define function data points, print
+mrp_sim <- simulate_mrp_data(n=1200)
+str(mrp_sim)
+}
+```
+```{R Census prep}
+census <- read.csv("C:/Users/Julius/Downloads/Census_useful/commonwealth_electorate_data.csv", header = TRUE)
+census_final <- census[order(census$Electorate),]
+```
+
+```{R 2016 election prep}
+
+## Creating Data frame with ALP 2016 votes and total votes(use this to decrease the total number of people in an electorate?)
+tpp2019 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/2019_HouseTppByDivision.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
+
+tpp2019 <- tpp2019[order(tpp2019$DivisionNm),] # make sure electorates are in correct order
+votes <- tpp2019$Australian.Labor.Party.Percentage/100
+State <- tpp2019$StateAb
+```
+Problem: Facing significant issue here with the census data, not really compatible with how it was set up in the example. 
+Sample data in the example is essentially a series of various variables associated with an outcome and whether they liked cats, as compared to census data which is all actual info.
+
+Solution: Transform everything into percentages.
+
+What matters when deciding a vote? Age, Religion, Education, Xenophobia, Gender
+ 
+Age -> Various age groups -> Age_0_4_yr_M Age_5_14_yr_M Age_15_19_yr_M Age_20_24_yr_M Age_25_34_yr_M Age_35_44_yr_M Age_45_54_yr_M Age_55_64_yr_M Age_65_74_yr_M Age_75_84_yr_M Age_85ov_M
+Xeno -> Age groups + English only in home + indigenous persons + Born in Aus (Assimilation Metric has to be programmed in) -> (Age bins) + Lang_spoken_home_Eng_only_M + Indigenous_P_Tot_M + Birthplace_Australia_M
+Education -> Education groups -> Create bins for completed / undergoing VCE vs Dropped out
+Gender -> Use genders bins rather than _P
+Housing -> Private vs Public - Count_psns_occ_priv_dwgs_M Count_Persons_other_dwgs_M 
+```{r binning}
+
+## binding census outcomes and votes
+census <- cbind(census_final,votes)
+census <- cbind(census,State)
+census$Median.weekly.rent.... <- round_any(census$Median.weekly.rent....,50) ## making bins for rent 
+## make blue collar / white collar / managerial classes for work
+## population density for each electorate would be really damn good
+```
+```{r manipulation}
+
+## Modeling in actuality
+fit <- stan_glmer(
+  votes ~ factor(Median.weekly.rent....) + factor(Recent.migrants..arrived.2006.2016.) + factor(State) + ## should have population density factor, average income would be nice as well
+       (1|One.parent.family), ## state as a
+  family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
+  data = census ## data being in the model
+)
+
+posterior_prob <- posterior_linpred(fit, transform = TRUE)
+
+## Should be the weightings, use % of votes from electorate to weigh sample 
+
+## Not functioning as intended to balance various cells
+
+poststrat_prob <- posterior_prob  # %*% (tpp2019$TotalVotes) / sum(tpp2019$TotalVotes)
+
+###
+
+model_popn_pref <- c(mean = mean(poststrat_prob), sd = sd(poststrat_prob))
+round(model_popn_pref, 3)
+
+## filler dataframe 
+state_df <- data.frame(
+  model_state_sd = rep(-1, 151),
+  model_state_TPP = rep(-1, 151),
+  true_state_TPP = rep(-1, 151),
+  N = rep(-1, 151) ## can't remove for some reason ???
+)
+
+## generating new data for the data frame
+census <- rownames_to_column(census)
+rowname <- as.numeric(as.character(unlist(census[[1]])))
+census1 <- subset(census, select = -c(rowname))
+census1 <- cbind(census,rowname)
+for(i in 1:length(levels(as.factor(census$rowname)))) {
+  poststrat_state <- census[census$rowname == i, ]
+    posterior_prob_state <- posterior_linpred(
+    fit,
+    transform = TRUE,
+    draws = 4000,
+    newdata = as.data.frame(poststrat_state)
+  )
+poststrat_prob_state <- posterior_prob_state # %*% (census_tmp$Tot_P_P) / sum(census_tmp$Tot_P_P)
+  #This is the estimate for popn in state:
+  state_df$model_state_TPP[i] <- round(mean(poststrat_prob_state), 6)
+  state_df$model_state_sd[i] <- round(sd(poststrat_prob_state), 6)
+  #And what is the actual popn?
+  state_df$N[i] <- length(census$votes[census$state == i]) ## what does this do?
+  state_df$true_state_TPP <- census$votes
+  state_df$diff_in_TPP <- abs(state_df$model_state_TPP - state_df$true_state_TPP)
+  state_df$electorate <- census$Electorate
+  }
+
+```
