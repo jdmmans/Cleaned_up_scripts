@@ -136,35 +136,43 @@ tpp2019 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/2019_HouseTppByDivi
 
 tpp2019 <- tpp2019[order(tpp2019$DivisionNm),] # make sure electorates are in correct order
 votes <- tpp2019$Australian.Labor.Party.Percentage/100
+swing <- tpp2019$Swing
 State <- tpp2019$StateAb
+rural <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/demographic-classification-as-at-3-july-2020.xlsx - Australia - demographic classif.csv")
+rural <- rural[order(rural$Electoral.division),]
+rural <- rural$Demographic.classification
+prior_tpp <- round(votes + swing/100,2) ## may need to round to 2 decimal points, could be overly specific with 3
 ```
-Problem: Facing significant issue here with the census data, not really compatible with how it was set up in the example. 
-Sample data in the example is essentially a series of various variables associated with an outcome and whether they liked cats, as compared to census data which is all actual info.
-
-Solution: Transform everything into percentages.
-
-What matters when deciding a vote? Age, Religion, Education, Xenophobia, Gender
- 
-Age -> Various age groups -> Age_0_4_yr_M Age_5_14_yr_M Age_15_19_yr_M Age_20_24_yr_M Age_25_34_yr_M Age_35_44_yr_M Age_45_54_yr_M Age_55_64_yr_M Age_65_74_yr_M Age_75_84_yr_M Age_85ov_M
-Xeno -> Age groups + English only in home + indigenous persons + Born in Aus (Assimilation Metric has to be programmed in) -> (Age bins) + Lang_spoken_home_Eng_only_M + Indigenous_P_Tot_M + Birthplace_Australia_M
-Education -> Education groups -> Create bins for completed / undergoing VCE vs Dropped out
-Gender -> Use genders bins rather than _P
-Housing -> Private vs Public - Count_psns_occ_priv_dwgs_M Count_Persons_other_dwgs_M 
 ```{r binning}
 
 ## binding census outcomes and votes
-census <- cbind(census_final,votes)
-census <- cbind(census,State)
-census$Median.weekly.rent.... <- round_any(census$Median.weekly.rent....,50) ## making bins for rent 
-## make blue collar / white collar / managerial classes for work
+census <- cbind(census_final,votes,State,rural,swing,prior_tpp)
+
+## creating rental stress and mortgage stress variables
+census$Median.weekly.household.income.... <- gsub(",","",census$Median.weekly.household.income....) ## x,xxx format for numbers is preventing conversion to numeric
+census$Median.monthly.mortgage.repayments.... <- gsub(",","",census$Median.monthly.mortgage.repayments....) 
+census$Median.weekly.household.income.... <- as.numeric(as.character(census$Median.weekly.household.income....))
+census$Median.monthly.mortgage.repayments.... <- as.numeric(as.character(census$Median.monthly.mortgage.repayments....))
+
+census$rental_stress <- round(census$Median.weekly.rent..../census$Median.weekly.household.income...., 2)
+census$mortgage_stress <- round(census$Median.monthly.mortgage.repayments..../census$Median.weekly.household.income....,1)
+
+## blue collar / white collar classes for work
+
+census$white_collar <- round(census$Professionals + census$Clerical.and.Administrative.Workers + census$Community.and.Personal.Service.Workers,1)
+census$blue_collar <- round(census$Technicians.and.Trades.Workers + census$Sales.Workers + census$Machinery.Operators.and.Drivers + census$Labourers,1) 
+census$Managers <- round(census$Profession_Managers,1)
+
+#### drop factors from census that I don't use in analysis? ####
+
 ## population density for each electorate would be really damn good
 ```
 ```{r manipulation}
 
 ## Modeling in actuality
 fit <- stan_glmer(
-  votes ~ factor(Median.weekly.rent....) + factor(Recent.migrants..arrived.2006.2016.) + factor(State) + ## should have population density factor, average income would be nice as well
-       (1|One.parent.family), ## state as a
+  votes ~ factor(rental_stress) + factor(rural) + factor(Born.overseas) + factor(blue_collar) + factor(white_collar) + factor(Managers)
+       + (1|prior_tpp) + (1|X0.to.17.years.old) + (1|X18.to.34.years.old) + (1|X35.to.49.years.old) + (1|X50.to.64.years.old) +(1|X65.to.79.years.old) + (1|X80.years.old.and.over),
   family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
   data = census ## data being in the model
 )
@@ -192,9 +200,6 @@ state_df <- data.frame(
 
 ## generating new data for the data frame
 census <- rownames_to_column(census)
-rowname <- as.numeric(as.character(unlist(census[[1]])))
-census1 <- subset(census, select = -c(rowname))
-census1 <- cbind(census,rowname)
 for(i in 1:length(levels(as.factor(census$rowname)))) {
   poststrat_state <- census[census$rowname == i, ]
     posterior_prob_state <- posterior_linpred(
@@ -210,7 +215,7 @@ poststrat_prob_state <- posterior_prob_state # %*% (census_tmp$Tot_P_P) / sum(ce
   #And what is the actual popn?
   state_df$N[i] <- length(census$votes[census$state == i]) ## what does this do?
   state_df$true_state_TPP <- census$votes
-  state_df$diff_in_TPP <- abs(state_df$model_state_TPP - state_df$true_state_TPP)
+  state_df$diff_in_TPP <- state_df$model_state_TPP - state_df$true_state_TPP
   state_df$electorate <- census$Electorate
   }
 
