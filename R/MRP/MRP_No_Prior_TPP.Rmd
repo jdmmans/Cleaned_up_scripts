@@ -1,0 +1,127 @@
+---
+title: "MRP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rstanarm)
+library(ggplot2)
+library(bayesplot)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+```{R Census prep}
+census <- read.csv("C:/Users/Julius/Downloads/Census_useful/commonwealth_electorate_data.csv", header = TRUE)
+census_final <- census[order(census$Electorate),]
+```
+
+```{R 2016 election prep}
+
+## Creating Data frame with ALP 2016 votes and total votes(use this to decrease the total number of people in an electorate?)
+tpp2019 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/2019_HouseTppByDivision.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
+
+tpp2019 <- tpp2019[order(tpp2019$DivisionNm),] # make sure electorates are in correct order
+votes <- tpp2019$Australian.Labor.Party.Percentage/100
+swing <- tpp2019$Swing
+State <- tpp2019$StateAb
+rural <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/demographic-classification-as-at-3-july-2020.xlsx - Australia - demographic classif.csv")
+rural <- rural[order(rural$Electoral.division),]
+rural <- rural$Demographic.classification
+prior_tpp <- round(votes + swing/100,2) ## may need to round to 2 decimal points, could be overly specific with 3
+```
+```{r binning}
+
+## binding census outcomes and votes
+census <- cbind(census_final,votes,State,rural,swing,prior_tpp)
+
+## creating rental stress and mortgage stress variables
+census$Median.weekly.household.income.... <- gsub(",","",census$Median.weekly.household.income....) ## x,xxx format for numbers is preventing conversion to numeric
+census$Median.monthly.mortgage.repayments.... <- gsub(",","",census$Median.monthly.mortgage.repayments....) 
+census$Median.weekly.household.income.... <- as.numeric(as.character(census$Median.weekly.household.income....))
+census$Median.monthly.mortgage.repayments.... <- as.numeric(as.character(census$Median.monthly.mortgage.repayments....))
+
+census$rental_stress <- round(census$Median.weekly.rent..../census$Median.weekly.household.income...., 2)
+census$mortgage_stress <- round(census$Median.monthly.mortgage.repayments..../census$Median.weekly.household.income....,1)
+census$Median.weekly.household.income.... <- round_any(census$Median.weekly.household.income...., 50)
+
+## blue collar / white collar classes for work
+
+census$white_collar <- round(census$Professionals + census$Clerical.and.Administrative.Workers + census$Community.and.Personal.Service.Workers,1)
+census$blue_collar <- round(census$Technicians.and.Trades.Workers + census$Sales.Workers + census$Machinery.Operators.and.Drivers + census$Labourers,1) 
+census$Managers <- round(census$Profession_Managers,1)
+
+#### drop factors from census that I don't use in analysis? ####
+
+## population density for each electorate would be really damn good
+```
+```{r manipulation}
+
+## Modeling in actuality
+fit <- stan_glmer(
+  votes ~ factor(Median.weekly.household.income....) + factor(rental_stress) + factor(rural) + factor(Born.overseas) + factor(blue_collar) + factor(white_collar) + factor(Managers)
+       + (1|State) + (1|X0.to.17.years.old) + (1|X18.to.34.years.old) + (1|X35.to.49.years.old) + (1|X50.to.64.years.old) +(1|X65.to.79.years.old) + (1|X80.years.old.and.over) + factor(Couple.family.without.children),
+  family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
+  data = census ## data being in the model
+)
+
+posterior_prob <- posterior_linpred(fit, transform = TRUE)
+
+## Should be the weightings, use % of votes from electorate to weigh sample 
+
+## Not functioning as intended to balance various cells
+
+poststrat_prob <- posterior_prob  # %*% (tpp2019$TotalVotes) / sum(tpp2019$TotalVotes)
+
+###
+
+model_popn_pref <- c(mean = mean(poststrat_prob), sd = sd(poststrat_prob))
+round(model_popn_pref, 3)
+
+## filler dataframe 
+state_df <- data.frame(
+  model_state_sd = rep(-1, 151),
+  model_state_TPP = rep(-1, 151),
+  true_state_TPP = rep(-1, 151),
+  N = rep(-1, 151) ## can't remove for some reason ???
+)
+
+## generating new data for the data frame
+census <- rownames_to_column(census)
+for(i in 1:length(levels(as.factor(census$rowname)))) {
+  poststrat_state <- census[census$rowname == i, ]
+    posterior_prob_state <- posterior_linpred(
+    fit,
+    transform = TRUE,
+    draws = 4000,
+    newdata = as.data.frame(poststrat_state)
+  )
+poststrat_prob_state <- posterior_prob_state # %*% (census_tmp$Tot_P_P) / sum(census_tmp$Tot_P_P)
+  #This is the estimate for popn in state:
+  state_df$model_state_TPP[i] <- round(mean(poststrat_prob_state), 6)
+  state_df$model_state_sd[i] <- round(sd(poststrat_prob_state), 6)
+  #And what is the actual popn?
+  state_df$N[i] <- length(census$votes[census$state == i]) ## what does this do?
+  state_df$true_state_TPP <- census$votes
+  state_df$diff_in_TPP <- state_df$model_state_TPP - state_df$true_state_TPP
+  state_df$electorate <- census$Electorate
+  }
+
+```
+
+```{r applying to Goldstein SA1s}
+tmp <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/Goldstein_polling_data.csv",, header = TRUE) ## existing SA1 prediction data
+SA1s <- unique(tmp$SA1_id) ## SA1 id's for Goldstein
+
+## Needed variables
+
+professions
+median income
+median rent
+born overseas
+prior TPP????
+Age profile bins
+```
