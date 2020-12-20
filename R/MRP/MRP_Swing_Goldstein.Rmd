@@ -1,0 +1,210 @@
+---
+title: "MRP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rstanarm)
+library(ggplot2)
+library(bayesplot)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(tibble)
+```
+
+```{R Census prep}
+census <- read.csv("C:/Users/Julius/Downloads/Census_useful/commonwealth_electorate_data.csv", header = TRUE)
+census_final <- census[order(census$Electorate),]
+```
+
+```{R 2016 election prep}
+
+## Creating Data frame with ALP 2016 votes and total votes(use this to decrease the total number of people in an electorate?)
+tpp2019 <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/2019_HouseTppByDivision.csv") ## Two Party pref, so even with Labor/Lib dead last should still give data for those two
+
+tpp2019 <- tpp2019[order(tpp2019$DivisionNm),] # make sure electorates are in correct order
+votes <- tpp2019$Australian.Labor.Party.Percentage/100
+swing <- tpp2019$Swing
+State <- tpp2019$StateAb
+rural <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/demographic-classification-as-at-3-july-2020.xlsx - Australia - demographic classif.csv")
+rural <- rural[order(rural$Electoral.division),]
+rural <- rural$Demographic.classification
+prior_tpp <- round(votes + swing/100,2) ## may need to round to 2 decimal points, could be overly specific with 3
+```
+```{r binning}
+
+## binding census outcomes and votes
+census <- cbind(census_final,votes,State,rural,swing,prior_tpp)
+
+## creating rental stress and mortgage stress variables
+census$Median.weekly.household.income.... <- gsub(",","",census$Median.weekly.household.income....) ## x,xxx format for numbers is preventing conversion to numeric
+census$Median.monthly.mortgage.repayments.... <- gsub(",","",census$Median.monthly.mortgage.repayments....) 
+census$Median.weekly.household.income.... <- as.numeric(as.character(census$Median.weekly.household.income....))
+census$Median.monthly.mortgage.repayments.... <- as.numeric(as.character(census$Median.monthly.mortgage.repayments....))
+
+census$rental_stress <- round_any(census$Median.weekly.rent..../census$Median.weekly.household.income...., 0.02)
+census$mortgage_stress <- round(census$Median.monthly.mortgage.repayments..../census$Median.weekly.household.income....,1)
+census$Median.weekly.household.income.... <- round_any(census$Median.weekly.household.income...., 50)
+census$Born.overseas <- round(census$Born.overseas, 2)
+
+## blue collar / white collar classes for work
+census$white_collar <- round(census$Professionals + census$Clerical.and.Administrative.Workers + census$Community.and.Personal.Service.Workers,1)
+census$blue_collar <- round(census$Technicians.and.Trades.Workers + census$Sales.Workers + census$Machinery.Operators.and.Drivers + census$Labourers,1) 
+census$Managers <- round(census$Profession_Managers,1)
+
+#### drop factors from census that I don't use in analysis? ####
+
+## population density for each electorate would be really damn good
+```
+```{r manipulation}
+
+## Modeling in actuality
+fit <- stan_glmer(
+  votes ~ factor(Median.weekly.household.income....) + factor(rental_stress) + factor(rural) + factor(Born.overseas) + factor(blue_collar) + factor(white_collar) + factor(Managers)
+       + (1|State) + (1|X0.to.17.years.old) + (1|X18.to.34.years.old) + (1|X35.to.49.years.old) + (1|X50.to.64.years.old) +(1|X65.to.79.years.old) + (1|X80.years.old.and.over),
+  family = gaussian, ## exponential probability, i.e no one demo will ever vote 100% one way
+  data = census ## data being in the model
+)
+
+## filler dataframe 
+state_df <- data.frame(electorate = rep(-1, 151))
+
+## generating new data for the data frame
+census <- rownames_to_column(census)
+for(i in 1:length(levels(as.factor(census$rowname)))) {
+  poststrat_state <- census[census$rowname == i, ]
+    posterior_prob_state <- posterior_linpred(
+    fit,
+    transform = TRUE,
+    draws = 4000,
+    newdata = as.data.frame(poststrat_state)
+  )
+poststrat_prob_state <- posterior_prob_state # %*% (census_tmp$Tot_P_P) / sum(census_tmp$Tot_P_P)
+  #This is the estimate for popn in state:
+  state_df$model_state_sd[i] <- round(sd(poststrat_prob_state), 6)
+  state_df$model_state_swing[i] <- round(mean(poststrat_prob_state), 6)
+  state_df$true_state_swing <- census$votes
+  state_df$diff_in_swing <- state_df$model_state_swing - state_df$true_state_swing
+  state_df$electorate <- census$Electorate
+  }
+```
+
+## Needed variables from files
+professions - all headings align with order in census proper - 2016Census_G53B_VIC_SA1.csv 
+median income - Median_tot_prsnl_inc_weekly - 2016Census_G02_VIC_SA1.csv
+median rent - Median_rent_weekly - 2016Census_G02_VIC_SA1.csv
+born overseas - Birthplace_Elsewhere_P  - 2016Census_G01_VIC_SA1.csv 
+Age profile bins - all - 2016Census_G04A_VIC_SA1.csv + 2016Census_G04B_VIC_SA1.csv - add on to brackets in 2016Census_G01_VIC_SA1.csv
+family without children - CF_no_children_P - 2016Census_G25_VIC_SA1.csv
+
+```{r applying to Goldstein SA1s}
+tmp <- read.csv("C:/Users/Julius/Downloads/Aus_Elections/Goldstein_polling_data.csv", header = TRUE) ## existing SA1 prediction data
+SA1s <- unique(tmp$SA1_id) ## SA1 id's for Goldstein
+
+## variables already have
+rural <- rep('Inner Metropolitan',(length(SA1s)))
+State <- rep('VIC',(length(SA1s)))
+
+professions <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G53B_VIC_SA1.csv")
+mix <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G01_VIC_SA1.csv")
+median_rent <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G02_VIC_SA1.csv")
+age1 <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G04A_VIC_SA1.csv")
+age2 <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G04B_VIC_SA1.csv")
+family_wo_children <- read.csv("C:/Users/Julius/Downloads/2016 Census GCP Statistical Area 1 for VIC/2016Census_G25_VIC_SA1.csv")
+
+age <- cbind(age1,age2) ## removing age foolishness
+
+## filter based on SA1s in Goldstein
+
+professions <- professions[professions$SA1_7DIGITCODE_2016 %in% SA1s ,]
+mix <- mix[mix$SA1_7DIGITCODE_2016 %in% SA1s ,]
+median_rent <- median_rent[median_rent$SA1_7DIGITCODE_2016 %in% SA1s,]
+age <- age[age$SA1_7DIGITCODE_2016 %in% SA1s,]
+family_wo_children <- family_wo_children[family_wo_children$SA1_7DIGITCODE_2016 %in% SA1s,]
+
+## straight up extraction
+Couple.family.without.children <- family_wo_children$CF_Total_P
+Born.overseas <- mix$Birthplace_Elsewhere_P
+
+
+## profession binning
+white_collar <- professions$Tot_OcProf + professions$Tot_OcClericAdm + professions$Tot_OcComPerS
+blue_collar <- professions$Tot_OcTechTrdW + professions$Tot_OcSalesWk + professions$Tot_OcMacOp_Driv +  professions$Tot_OcLab
+Managers <- professions$Tot_OcMngr
+
+## age binning
+X0.to.17.years.old <- (age$Age_yr_0_4_P + age$Age_yr_5_9_P + age$Age_yr_10_14_P +age$Age_yr_15_P + age$Age_yr_16_P + age$Age_yr_17_P)
+X18.to.34.years.old <- (age$Age_yr_18_P + age$Age_yr_19_P + age$Age_yr_20_24_P + age$Age_yr_25_29_P + age$Age_yr_30_34_P)
+X35.to.49.years.old<- (age$Age_yr_35_39_P + age$Age_yr_40_44_P + age$Age_yr_45_49_P)
+X50.to.64.years.old <- (age$Age_yr_50_54_P + age$Age_yr_55_59_P + age$Age_yr_60_64_P)
+X65.to.79.years.old <- (age$Age_yr_65_69_P +age$Age_yr_70_74_P +age$Age_yr_75_79_P)
+X80.years.old.and.over <- (age$Age_yr_80_84_P + age$Age_yr_85_89_P + age$Age_yr_90_94_P + age$Age_yr_95_99_P + age$Age_yr_100_yr_over_P)
+
+## putting everything together
+
+Gold_SA1 <- cbind(Couple.family.without.children,Born.overseas,median_rent,rural,State,white_collar,blue_collar,Managers,X0.to.17.years.old,X18.to.34.years.old,X35.to.49.years.old,X50.to.64.years.old,X65.to.79.years.old,X80.years.old.and.over)
+Gold_SA1 <- as.data.frame(Gold_SA1)
+write.csv(Gold_SA1, file = "C:/Users/Julius/Downloads/Gold_SA1.csv") ## due to weird math shit going on
+
+## rental stress
+Gold_SA1 <- read.csv("C:/Users/Julius/Downloads/Gold_SA1.csv")
+Gold_SA1 <- as.data.frame(Gold_SA1)
+Gold_SA1$rental_stress <- round_any(Gold_SA1$Median_rent_weekly/Gold_SA1$Median_tot_hhd_inc_weekly,0.02)
+Gold_SA1$Median.weekly.household.income.... <- round_any(Gold_SA1$Median_tot_hhd_inc_weekly,100)
+
+## rounding job class / age 
+tot_working <- (Gold_SA1$white_collar + Gold_SA1$blue_collar + Gold_SA1$Managers)
+Gold_SA1$white_collar <- round(Gold_SA1$white_collar/tot_working,1)
+Gold_SA1$blue_collar <- round(Gold_SA1$blue_collar/tot_working,1)
+Gold_SA1$Managers <- round(Gold_SA1$Managers/tot_working,1)
+
+tot_pop <- Gold_SA1$X0.to.17.years.old + Gold_SA1$X18.to.34.years.old + Gold_SA1$X35.to.49.years.old + Gold_SA1$X50.to.64.years.old + Gold_SA1$X65.to.79.years.old + Gold_SA1$X80.years.old.and.over
+Gold_SA1$X0.to.17.years.old <- round(Gold_SA1$X0.to.17.years.old/tot_pop, 2)
+Gold_SA1$X18.to.34.years.old <- round(Gold_SA1$X18.to.34.years.old/tot_pop, 2)
+Gold_SA1$X35.to.49.years.old <- round(Gold_SA1$X35.to.49.years.old/tot_pop, 2)
+Gold_SA1$X50.to.64.years.old <- round(Gold_SA1$X50.to.64.years.old/tot_pop, 2)
+Gold_SA1$X65.to.79.years.old <- round(Gold_SA1$X65.to.79.years.old/tot_pop, 2)
+Gold_SA1$X80.years.old.and.over <- round(Gold_SA1$X80.years.old.and.over/tot_pop, 2)
+
+Gold_SA1$Born.overseas <- round(Gold_SA1$Born.overseas/tot_pop, 2)
+
+Gold_SA1 <- Gold_SA1[-1,]
+
+Gold_SA1$Managers[Gold_SA1$Managers == 0.3] <- 0.2
+Gold_SA1$Median.weekly.household.income....[Gold_SA1$Median.weekly.household.income.... == 2300] <- 2350
+Gold_SA1$Median.weekly.household.income....[Gold_SA1$Median.weekly.household.income.... == 2200] <- 2250
+Gold_SA1$Median.weekly.household.income....[Gold_SA1$Median.weekly.household.income....>2400] <- 2400
+Gold_SA1$Median.weekly.household.income....[Gold_SA1$Median.weekly.household.income....<950] <- 950
+Gold_SA1$blue_collar[Gold_SA1$blue_collar < 0.2 ] <- 0.2
+Gold_SA1$white_collar[Gold_SA1$white_collar > 0.6 ] <- 0.6
+Gold_SA1$Managers[Gold_SA1$Managers > 0.2 ] <- 0.2
+Gold_SA1$rental_stress[Gold_SA1$rental_stress == 0.14] <- 0.12
+Gold_SA1$rental_stress[Gold_SA1$rental_stress == 0.08] <- 0.06
+Gold_SA1$rental_stress[Gold_SA1$rental_stress < 0.06] <- 0.06
+Gold_SA1$rental_stress[Gold_SA1$rental_stres > 0.32] <- 0.32
+Gold_SA1$rental_stress[Gold_SA1$rental_stress == 0.1] <- 0.06
+Gold_SA1$Born.overseas[Gold_SA1$Born.overseas == 0.45] <- 0.44
+Gold_SA1$Born.overseas[Gold_SA1$Born.overseas == 0.47] <- 0.46
+Gold_SA1$Born.overseas[Gold_SA1$Born.overseas > 0.54] <- 0.54
+## filler dataframe 
+state_df <- data.frame(electorate = rep(-1, 338))
+
+## generating new data for the data frame
+Gold_SA1 <- rownames_to_column(Gold_SA1)
+for(i in 2:length(levels(as.factor(Gold_SA1$rowname)))) {
+  poststrat_state <- Gold_SA1[Gold_SA1$rowname == i, ]
+    posterior_prob_state <- posterior_linpred(
+    fit,
+    transform = TRUE,
+    draws = 4000,
+    newdata = as.data.frame(poststrat_state)
+  )
+poststrat_prob_state <- posterior_prob_state # %*% (census_tmp$Tot_P_P) / sum(census_tmp$Tot_P_P)
+  #This is the estimate for popn in state:
+  state_df$model_state_sd[i] <- round(sd(poststrat_prob_state), 6)
+  state_df$model_state_swing[i] <- round(mean(poststrat_prob_state), 6)
+  state_df$SA1 <- Gold_SA1$SA1_7DIGITCODE_2016
+  }
+```
